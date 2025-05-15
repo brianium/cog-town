@@ -24,15 +24,17 @@
                            result (openai/transcribe :file {:value input :filename random-filename})]
                        {:role :user :content (get-in result [:transcription :text])}))]
     (async/pipeline-blocking 1 out (map transcribe) audio-in false)
-    (go-loop []
+    (go-loop [done nil]
       (let [msg (<! in)]
         (if (nil? msg)
-          (async/close! io)
+          (do
+            (when (fn? done)
+              (done))
+            (async/close! io))
           (do
             (println "Recording")
-            (record (fn [audio-bytes _ _]
-                      (async/put! audio-in audio-bytes)))
-            (recur)))))
+            (recur (record (fn [audio-bytes _ _]
+                             (async/put! audio-in audio-bytes))))))))
     io))
 
 (defn persona
@@ -59,10 +61,12 @@
     (cog *context gpt-4o 1 xf)))
 
 (defn with-speech
-  "Give the gift of speech"
-  [persona & {:keys [voice instructions content-fn]
-              :or   {voice :onyx content-fn :content}}]
+  "We must give our partner the gift of speech. Attaches a stop-playback function to the agent that
+   can be used to immediately cut audio playback."
+  [cog & {:keys [voice instructions content-fn]
+          :or   {voice :onyx content-fn :content}}]
   (let [out      (chan)
+        io       (io-chan cog out)
         *stop-fn (atom nil)
         speak    (fn [message result]
                    (let [resume-after-playback (fn []
@@ -71,13 +75,12 @@
                          stop-fn               (-> (openai/create-speech :input (content-fn message) :voice voice :instructions instructions)
                                                    (play :on-complete resume-after-playback))]
                      (reset! *stop-fn stop-fn)))]
-    (async/pipeline-async 1 out speak persona false)
-    (-> persona
-        (cog/output-modality speak)
+    (async/pipeline-async 1 out speak cog false)
+    (-> (cog/fork cog io)
         (assoc :stop-playback (fn []
-                                 (when @*stop-fn
-                                   (@*stop-fn)
-                                   (reset! *stop-fn nil)))))))
+                                (when @*stop-fn
+                                  (@*stop-fn)
+                                  (reset! *stop-fn nil)))))))
 
 (defn chat-with-gpt
   "Start a dialogue with gpt. Returns a channel with the context of the conversation partner. Closing

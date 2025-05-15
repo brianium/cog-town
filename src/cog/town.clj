@@ -24,10 +24,7 @@
   WritePort
   (put! [_ val fn1] (proto/put! io val fn1))
   Channel
-  (close! [self]
-    (when-some [src (::src self)]
-      (close! src))
-    (proto/close! io))
+  (close! [_] (proto/close! io))
   (closed? [_] (proto/closed? io))
   Mult
   (tap* [_ ch close?] (async/tap* mult ch close?))
@@ -62,6 +59,20 @@
         io            (io-chan in-chan raw-out)]
     (async/pipeline-blocking 1 out-chan (map (partial transition context)) in-chan false ex-handler)
     (Cog. context io mult)))
+
+(defn fork
+  "Create a new cog that copies cog's context (optionally applying context-fn).
+   The new cog will use io as it's io channel and will receive a new mult"
+  ([^Cog cog ^IoChannel io]
+   (fork cog io identity))
+  ([^Cog cog ^IoChannel io context-fn]
+   (let [{:keys [context]} cog
+         {:keys [in out]}  io
+         mult     (async/mult out)
+         raw-out  (chan)
+         _        (async/tap mult raw-out)
+         new-io   (io-chan in raw-out)]
+     (Cog. (context-fn context) new-io mult))))
 
 (defn cog? [x]
   (instance? Cog x))
@@ -173,75 +184,3 @@
                 (put! in message)
                 (recur (next cogs)))))))
     io))
-
-;;; Modalities
-
-(defn modality*
-  "The assumption is that in-ch OR out-ch will be a channel - not both. i.e in-ch should
-  be nil if out-ch is a channel. Going to try composing with parents as source for now (each modality creates a composition).
-  It might be more performant to tap into specific input/output channels, but I don't really
-  know anything at this point."
-  [in-ch out-ch xform ^Cog src ex-handler type]
-  (let [{:keys   [context mult]} src
-        io       (if (some? in-ch) (io-chan in-ch src) (io-chan src out-ch))
-        props    (->> src
-                      (keys)
-                      (remove #{:context :mult :io})
-                      (select-keys src))
-        upgraded (Cog. context io mult)]
-    (if (= type :blocking)
-      (async/pipeline-blocking 1 (or in-ch out-ch) xform src true ex-handler)
-      (async/pipeline-async 1 (or in-ch out-ch) xform src true))
-    (-> upgraded
-        (merge props)
-        (assoc :cog.town/src src))))
-
-(defn modality-async*
-  [in-ch out-ch af ^Cog from]
-  (modality* in-ch out-ch af from nil :async))
-
-(defn modality-blocking*
-  ([in-ch out-ch xf ^Cog from]
-   (modality-blocking* in-ch out-ch xf from nil))
-  ([in-ch out-ch xf ^Cog from ex-handler]
-   (modality* in-ch out-ch xf from ex-handler :blocking)))
-
-;;; Input Modalities
-
-(defn input-modality-async
-  "Extend the cog with an async input modality. af is called with the same semantics as clojure.core.async/pipeline-async"
-  ([^Cog cog af]
-   (input-modality-async cog af (chan)))
-  ([^Cog cog af in-ch]
-   (modality-async* in-ch nil af cog)))
-
-(defn input-modality-blocking
-  "Extend the cog with a blocking input modality. xf is called with the same semantics as clojure.core.async/pipeline-blocking"
-  ([^Cog cog xf]
-   (input-modality-blocking cog xf (chan)))
-  ([^Cog cog xf in-ch]
-   (modality-blocking* in-ch nil xf cog))
-  ([^Cog cog xf in-ch ex-handler]
-   (modality-blocking* in-ch nil xf cog ex-handler)))
-
-(def input-modality "An alias for input-modality-async" input-modality-async)
-
-;;; Output Modalities
-
-(defn output-modality-async
-  "Extend the cog with an async output modality. af is called with the same semantics as clojure.core.async/pipeline-async"
-  ([^Cog cog af]
-   (output-modality-async cog af (chan)))
-  ([^Cog cog af out-ch]
-   (modality-async* nil out-ch af cog)))
-
-(defn output-modality-blocking
-  "Extend the cog with a blocking output modality. xf is called with the same semantics as clojure.core.async/pipeline-blocking"
-  ([^Cog cog xf]
-   (output-modality-blocking cog xf (chan)))
-  ([^Cog cog xf out-ch]
-   (modality-blocking* nil out-ch xf cog))
-  ([^Cog cog xf out-ch ex-handler]
-   (modality-blocking* nil out-ch xf cog ex-handler)))
-
-(def output-modality "An alias for output-modality-async" output-modality-async)
