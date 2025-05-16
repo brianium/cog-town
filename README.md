@@ -1,5 +1,7 @@
 # Cog Town 🏘️
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.github.brianium/cog-town.svg)](https://clojars.org/com.github.brianium/cog-town)
+
 Build **agentic workflows** in Clojure with the ergonomics of `core.async`.
 
 `cog.town` gives you a tiny set of composable primitives—**cogs**, **flows**, and **dialogues**—for wiring together stateful, concurrent agents that pass messages over channels.
