@@ -8,8 +8,8 @@
                   {io.github.abogoyavlensky/slim {:mvn/version "LATEST"}
                    slipset/deps-deploy {:mvn/version "0.2.2"}}
                   :ns-default slim.lib
-                  :exec-args {:lib         com.github.brianium/cog
+                  :exec-args {:lib         com.github.brianium/cog-town
                               :version     "202505151333"
-                              :url         "https://github.com/brianium/cog"
+                              :url         "https://github.com/brianium/cog-town"
                               :description "agentic workflows with core.async channels"
                               :developer   "Brian Scaturro"}}}}
