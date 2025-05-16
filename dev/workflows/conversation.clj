@@ -101,7 +101,7 @@
               (async/close! mic)
               (async/close! d))
           (recur))))
-    (async/put! d "はじめ") ;; The input message just kicks things off - its contents are irrelevant
+    (async/put! d "はじめ") ;;; The input message just kicks things off - its contents are irrelevant
     (assoc d :context (:context partner))))
 
 (comment

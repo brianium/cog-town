@@ -84,15 +84,19 @@
                    (recur)))))
 
            ;; Handle completion of recording
-           (go (<! done)
-               (.stop microphone)
-               (.close microphone)
-               (let [bytes (.toByteArray out)]
-                 (callback (wav-bytes bytes) format params))
-               (debug "Recording finished.")))
+           (go (let [sig (<! done)]
+                 (.stop microphone)
+                 (.close microphone)
+                 ;;; We will interpret :done only as a signal for the callback to be invoked
+                 ;;; The returned stop function sends a :kill signal that prevents sending
+                 ;;; any more data
+                 (when (= sig :done)
+                   (let [bytes (.toByteArray out)]
+                     (callback (wav-bytes bytes) format params)))
+                 (debug "Recording finished."))))
          (catch Exception e
            (debug (.getMessage e))
            (debug "Line unavailable")))
        (fn []
-         (async/put! done :done)
+         (async/put! done :kill)
          :stopped)))))
