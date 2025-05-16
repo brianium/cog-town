@@ -76,7 +76,7 @@
                                                    (play :on-complete resume-after-playback))]
                      (reset! *stop-fn stop-fn)))]
     (async/pipeline-async 1 out speak cog false)
-    (-> (cog/fork cog io)
+    (-> (cog/extend cog io)
         (assoc :stop-playback (fn []
                                 (when @*stop-fn
                                   (@*stop-fn)

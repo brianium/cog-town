@@ -54,7 +54,7 @@
                                         (:url))))
                       entry)]
     (async/pipeline-blocking 1 out (map show) sketch-artist false)
-    (->> (cog/fork sketch-artist io)
+    (->> (cog/extend sketch-artist io)
          (merge sketch-artist))))
 
 (defn interview

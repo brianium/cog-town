@@ -3,7 +3,8 @@
   with context. That context is updated via a transition function that is invoked
   on a separate thread"
   (:require [clojure.core.async :as async :refer [put! close! chan go-loop <! >! <!! >!! Mult]]
-            [clojure.core.async.impl.protocols :as proto :refer [ReadPort WritePort Channel]]))
+            [clojure.core.async.impl.protocols :as proto :refer [ReadPort WritePort Channel]])
+  (:refer-clojure :exclude [extend]))
 
 ;;; Custom channel types
 
@@ -18,7 +19,7 @@
     (proto/close! out))
   (closed? [_] (proto/closed? in)))
 
-(defrecord Cog [context io mult]
+(defrecord Cog [context io mult transition]
   ReadPort
   (take! [_ fn1] (proto/take! io fn1))
   WritePort
@@ -40,14 +41,22 @@
   [in-ch out-ch]
   (IoChannel. in-ch out-ch))
 
+(defn- pipe-transition*
+  "Initiates the given cogs transition pipeline."
+  [^Cog cog out-ch]
+  (let [ex-handler (fn [th] {:type ::error :throwable th}) 
+        {:keys [context transition io]} cog
+        {:keys [in]} io]
+    (async/pipeline-blocking 1 out-ch (map (partial transition context)) in false ex-handler))
+  cog)
+
 (defn cog
   "A cog is a channel that encapsulates context and the transition function
   that updates it. The transition function is an arity 2 function that is called
   with the context and the input message that triggers an update to the context. transition
-  will be called in a separate thread. Additional arguments follow the same semantics
-  as a core.async channel (note: ex-handler is used for pipeline-blocking AND the cog's
-  output channel). xf is an output channel only transducer. context can be any type as long
-  as transition can make use of it.
+  will be called in a separate thread. transition should return the message that will be sent to the output channel
+  Additional arguments follow the same semantics as a core.async channel. xf is an output channel only transducer.
+  context can be any type as long as transition can make use of it.
 
   A Cog is also a mult, so feel free to tap it if you want to send outputs to other channels."
   [context transition & [buf-or-n xf ex-handler]]
@@ -56,23 +65,44 @@
         mult          (async/mult out-chan)
         raw-out       (chan)
         _             (async/tap mult raw-out)
-        io            (io-chan in-chan raw-out)]
-    (async/pipeline-blocking 1 out-chan (map (partial transition context)) in-chan false ex-handler)
-    (Cog. context io mult)))
+        io            (io-chan in-chan raw-out)
+        cog*          (Cog. context io mult transition)]
+    (pipe-transition* cog* out-chan)))
 
 (defn fork
-  "Create a new cog that copies cog's context (optionally applying context-fn).
-   The new cog will use io as it's io channel and will receive a new mult"
-  ([^Cog cog ^IoChannel io]
-   (fork cog io identity))
-  ([^Cog cog ^IoChannel io context-fn]
+  "returns a new cog derived from the given cog. The new cog is created
+  with a separate io channel and mult. context-fn is called with cog's context
+  and should return a new context (or the same one). A new transition function
+  can be given, or can be explicitly set to nil to prevent transitions. A typical
+  use case for disabling transitions is when forking purely for the purpose
+  of transforming output modality. All map fields from cog will be merged into the new cog"
+  ([^Cog cog]
+   (fork cog identity))
+  ([^Cog cog context-fn]
+   (fork cog context-fn (io-chan (chan) (chan))))
+  ([^Cog cog context-fn ^IoChannel io]
+   (fork cog context-fn io (:transition cog)))
+  ([^Cog cog context-fn ^IoChannel io transition]
    (let [{:keys [context]} cog
          {:keys [in out]}  io
          mult     (async/mult out)
          raw-out  (chan)
          _        (async/tap mult raw-out)
-         new-io   (io-chan in raw-out)]
-     (Cog. (context-fn context) new-io mult))))
+         new-io   (io-chan in raw-out)
+         tr       (when (fn? transition)
+                    transition)
+         cog*     (merge cog (Cog. (context-fn context) new-io mult transition))]
+     (if (some? tr)
+       (pipe-transition* cog* out)
+       cog*))))
+
+(defn extend
+  "A special case of forking useful for extending the semantics of input and
+  ouput for a cog."
+  ([^Cog cog ^IoChannel io]
+   (extend cog io nil))
+  ([^Cog cog ^IoChannel io transition]
+   (fork cog identity io transition)))
 
 (defn cog? [x]
   (instance? Cog x))
