@@ -1,5 +1,6 @@
 (ns dev
   (:require [clojure.core.async :as a]
+            [clojure.string :as string]
             [clojure.tools.namespace.repl :as repl]
             [oai-clj.core :as oai]
             [cog.town :as cogs]))
@@ -30,12 +31,50 @@
   [prompt]
   (cogs/cog (atom [{:role :system :content prompt}]) gpt-4o))
 
+#_(refresh)
+
 (comment
+  ;;; 1. Create some cogs
+  (def echo
+    (cogs/cog (atom [])          ; <- stateful context
+              (fn [*ctx msg]     ; ctx-atom is the same atom each turn
+                (swap! *ctx conj msg)   ; mutate in place
+                (last (swap! *ctx conj (str "👋 you said: "  msg))))))
+
+  (def shout
+    (cogs/cog (atom [])
+              (fn [*ctx msg]
+                (let [uc (clojure.string/upper-case (last (swap! *ctx conj msg)))]
+                  (last (swap! *ctx conj uc))))))
+
+  ;;; 2. Wire cogs into a flow
+
+  (def shout-flow (cogs/flow [echo shout]))
+  (a/put! shout-flow "hello!")
+  (a/take! shout-flow println)
+  (a/close! shout-flow)
+
+  ;;; 3. Let two cogs talk
+
+  (def shout-convo (cogs/dialogue echo shout))
+  (a/put! shout-convo "hello!")
+  (a/go-loop []
+    (when-some [msg (a/<! shout-convo)]
+      (println msg)
+      (recur)))
+  (a/close! shout-convo)
+
+  ;;; Cleanup
+  (let [chs (cond-> [shout echo])]
+    (doseq [ch chs]
+      (a/close! ch)))
+
+  ;;; Simple LLM use case (example with forking as well)
 
   (def adder (cog "Given two numbers you add them"))
   (def adder-observer (a/chan))
   (a/tap adder adder-observer)
-  
+
   (def adder-chs [adder adder-observer])
 
   ;;; Wait for output from the adder or its observer
@@ -46,7 +85,7 @@
           adder
           (do (println "adder:")
               (println v))
-          
+
           adder-observer
           (do (println "adder observer:")
               (println v)))
@@ -71,16 +110,46 @@
           multiplier
           (do (println "multiplier:")
               (println v))
-          
+
           mult-observer
           (do (println "mult observer:")
               (println v)))
         (recur))))
 
   (a/put! multiplier {:role :user :content "Actually, multiply the last two numbers instead"})
-  
+
   ;;; Clean up the cogs
   (a/close! adder)
   (a/close! multiplier)
 
-  )
+  ;;; Flow with llms
+  (do
+    (def idea-guy (cog "You come up with an idea for a ridiculous product"))
+    (def marketing-guy (cog "Given a ridiculous product idea, you generate a slogan for it"))
+    (def product-team (cogs/flow [idea-guy marketing-guy]))
+    (a/put! product-team {:role :user :content "Give me your most ridiculous idea"})
+    (a/take! product-team println))
+
+  (cogs/context idea-guy)
+  (cogs/context marketing-guy)
+  (doseq [ch [idea-guy marketing-guy product-team]]
+    (a/close! ch))
+
+  ;;; Coordinate further with fanouts in order to take over the world
+  (do
+    (def idea-guy (cog "You come up with an idea for a ridiculous product"))
+    (def marketing-guy (cog "Given a ridiculous product idea, you generate a slogan for it"))
+    (def product-team (cogs/flow [idea-guy marketing-guy]))
+    (def japanese-translator (cog "You translate slogans into idiomatic japanese"))
+    (def french-translator (cog "You translate slogans into idiomatic french"))
+    (def spanish-translator (cog "You translate slogans into idiomatic spanish (Spain)"))
+    (def translators (cogs/fanout [japanese-translator french-translator spanish-translator]))
+    (def global-inc
+      (cogs/flow [product-team translators]))
+    (a/put! global-inc {:role :user :content "Give me your most ridiculous idea"})
+    (a/take! global-inc println))
+
+  (doseq [ch [idea-guy marketing-guy product-team japanese-translator french-translator spanish-translator translators global-inc]]
+    (a/close! ch))
+
+  (do "good in this world"))

@@ -1,7 +1,7 @@
 (ns cog.town
   "Build agentic workflows with core.async channels. A cog is just a channel
-  with context. That context is updated via a transition function that is invoked
-  on a separate thread"
+   with context. That context is updated via a transition function that is invoked
+   on a separate thread"
   (:require [clojure.core.async :as async :refer [put! close! chan go-loop <! >! <!! >!! Mult]]
             [clojure.core.async.impl.protocols :as proto :refer [ReadPort WritePort Channel]])
   (:refer-clojure :exclude [extend]))
@@ -42,7 +42,8 @@
   (IoChannel. in-ch out-ch))
 
 (defn- pipe-transition*
-  "Initiates the given cogs transition pipeline."
+  "Initiates the given cog's transition pipeline. Should really only be called once
+  at the beginning of a cog's lifetime."
   [^Cog cog out-ch]
   (let [ex-handler (fn [th] {:type ::error :throwable th}) 
         {:keys [context transition io]} cog
@@ -54,7 +55,7 @@
   "A cog is a channel that encapsulates context and the transition function
   that updates it. The transition function is an arity 2 function that is called
   with the context and the input message that triggers an update to the context. transition
-  will be called in a separate thread. transition should return the message that will be sent to the output channel
+  will be called in a separate thread. transition should return the message that will be sent to the output channel.
   Additional arguments follow the same semantics as a core.async channel. xf is an output channel only transducer.
   context can be any type as long as transition can make use of it.
 
@@ -118,16 +119,15 @@
   (let [in        (chan)
         out       (chan)
         io        (io-chan in out)
-        xform     (or xf (map identity))
-        result-ch (chan buf-or-n xform ex-handler)]
+        result-ch (chan buf-or-n xf ex-handler)]
     (go-loop [read in
               cs   (vec chs)]
       (let [v (<! read)]
         (if (nil? v)
           (close! result-ch)
           (if-some [ch (first cs)]
-            (do (>!! result-ch v)
-                (put! ch (<!! result-ch))
+            (do (put! result-ch v)
+                (put! ch (<! result-ch))
                 (recur ch (rest cs)))
             (do (put! out v)
                 (recur in (vec chs)))))))
