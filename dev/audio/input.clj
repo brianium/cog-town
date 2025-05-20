@@ -28,8 +28,8 @@
 
 (defn record
   "Start recording from the microphone. The callback will be invoked when audio input has finished.
-   Input is considered finish after a (:duration options) period of silence. (:threshold options) is the RMS threshold and
-   determines what volume of speech considered actual speech. Returns a stop function that can be invoked to immediately
+   Input is considered finished after a (:duration options) period of silence. (:threshold options) is the RMS threshold and
+   determines what volume of speech is considered actual speech. Returns a stop function that can be invoked to immediately
    stop recording"
   ([callback]
    (record callback {}))
