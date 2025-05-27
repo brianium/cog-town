@@ -31,8 +31,6 @@
   [prompt]
   (cogs/cog (atom [{:role :system :content prompt}]) gpt-4o))
 
-#_(refresh)
-
 (comment
   ;;; 1. Create some cogs
   (def echo
