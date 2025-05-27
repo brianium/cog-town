@@ -9,7 +9,7 @@
                    slipset/deps-deploy {:mvn/version "0.2.2"}}
                   :ns-default slim.lib
                   :exec-args {:lib         com.github.brianium/cog-town
-                              :version     "202505151333"
+                              :version     "202505271449"
                               :url         "https://github.com/brianium/cog-town"
                               :description "agentic workflows with core.async channels"
                               :developer   "Brian Scaturro"}}}}
