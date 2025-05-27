@@ -64,7 +64,7 @@
   (let [in-chan       (chan)
         out-chan      (chan buf-or-n xf ex-handler)
         mult          (async/mult out-chan)
-        raw-out       (chan)
+        raw-out       (chan buf-or-n)
         _             (async/tap mult raw-out)
         io            (io-chan in-chan raw-out)
         cog*          (Cog. context io mult transition)]
