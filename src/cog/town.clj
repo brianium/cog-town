@@ -48,7 +48,7 @@
   (let [ex-handler (fn [th] {:type ::error :throwable th}) 
         {:keys [context transition io]} cog
         {:keys [in]} io]
-    (async/pipeline-blocking 1 out-ch (map (partial transition context)) in false ex-handler))
+    (async/pipeline-blocking 1 out-ch (map (partial transition context)) in true ex-handler))
   cog)
 
 (defn cog
