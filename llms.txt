@@ -131,7 +131,7 @@ All helpers return a **channel‑like** value; compose them with ordinary
 ──────────────────────────────────────────────────────────────────────────────
 ## 7 Best‑practice crib sheet
 
-* **Pure in / pure out** – never mutate `msg`; derive and return new `ctx`.
+* **Pure in / pure out** – never mutate `msg`; derive and return new `ctx`. (mutable context CAN be used - i.e storing context in a db, filesystem)
 * **Guard against large roots** – ref‑out blobs, cap transcript length.
 * **Tap, don’t print** – instrumentation via Cog’s `Mult` keeps logic pure.
 * **Idempotent = replayable** – inject RNG seed in `msg` when stochastic; keep

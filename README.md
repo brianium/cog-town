@@ -49,7 +49,7 @@ Think of them as Lego® bricks for conversational or multimodal AI systems.
     (recur)))
 ```
 
-You write **pure** business logic; Cog Town handles state threading, back‑pressure, and blocking work on dedicated threads.
+You write **pure**[*](#a-note-on-purity) business logic; Cog Town handles state threading, back‑pressure, and blocking work on dedicated threads.
 
 ---
 
@@ -69,7 +69,7 @@ You write **pure** business logic; Cog Town handles state threading, back‑pre
 
 ## Transition functions
 
-A cog’s transition function **must be pure**:
+A cog’s transition function has the following signature:
 
 ```clojure
 transition :: (context, input) → [new‑context, output]
@@ -78,12 +78,53 @@ transition :: (context, input) → [new‑context, output]
 * Runs on its own **real** thread (via `async/thread`) so it is safe to block on HTTP or disk I/O.  
 * Throwing emits `{:type ::error :throwable th :input input}` as output.
 
+### A note on purity
+
+Transition functions are **pure** in the sense that they do not force you to mutate the context directly. Instead, they return a new context value. This can be useful for time travel, debugging, testing, etc. 
+
+However, you can still use side effects (we are talking to LLMs after all) like logging, HTTP requests, or database writes within the transition function. In fact this may be necessary when moving beyond stateful atoms (storing context in a database, for example).
+
+```clojure
+(defn gpt-4o
+  "More pure. Just a Clojure data structure as context. Still need to talk to OpenAI."
+  [context input]
+  (let [log-entries  (conj context input)
+        response     (openai/create-response :model :gpt-4o :easy-input-messages log-entries)
+        output-entry {:role    :assistant
+                      :content (-> (:output response) first :message :content first :output-text :text)
+                      :format  (when-some [fmt (some-> (:text response) :format)]
+                                 (if (some? (:json-schema fmt))
+                                   :json-schema
+                                   :text))}]
+    [(conj log-entries output-entry) output-entry]))
+```
+
+vs.
+
+```clojure
+(defn gpt-4o
+  "Less pure. Context is backed by some protocol using next.jdbc or similar"
+  [context input]
+  (let [log-entries  (ctx/insert! context input)
+        response     (openai/create-response :model :gpt-4o :easy-input-messages log-entries)
+        output-entry {:role    :assistant
+                      :content (-> (:output response) first :message :content first :output-text :text)
+                      :format  (when-some [fmt (some-> (:text response) :format)]
+                                 (if (some? (:json-schema fmt))
+                                   :json-schema
+                                   :text))}]
+    (ctx/insert! context output-entry)
+    [context output-entry]))
+```
+
+Clojure is freedom.
+
 ---
 
 ## Observing & time‑travel
 
 * **Live snapshot** – since a cog implements `IDeref`, you can simply do `(@my-cog)` to get the latest context value.  
-* **Audit / replay** – Optionally collect the pair `[ctx out]` in transition functions, storing it in an atom or log. Replaying the log with the pure transition will reproduce the run deterministically (with `temperature = 0`).  
+* **Audit / replay** – Optionally collect the pair `[ctx out]` in transition functions, storing it in an atom or log.  
 * **Forking** – Pick any historical `ctx` value and feed it back into a new cog for “what‑if” exploration.
 
 ---
