@@ -53,7 +53,7 @@
            :instructions "Speak in a whiny, high-pitched voice"}))
 
   ;;; Check the context logs
-  (mapv cog/context (:cogs d))
+  (mapv deref (:cogs d))
   
 ;;; Shut it down
   (async/close! d)

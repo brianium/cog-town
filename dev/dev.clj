@@ -127,8 +127,11 @@
     (a/put! product-team {:role :user :content "Give me your most ridiculous idea"})
     (a/take! product-team println))
 
-  (cogs/context idea-guy)
-  (cogs/context marketing-guy)
+  ;;; Check context
+  @idea-guy
+  @marketing-guy
+
+  ;;; Close em down
   (doseq [ch [idea-guy marketing-guy product-team]]
     (a/close! ch))
 

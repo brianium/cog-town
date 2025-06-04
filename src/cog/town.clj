@@ -65,11 +65,13 @@
   "A cog is a channel that encapsulates context and the transition function
   that updates it. The transition function is an arity 2 function that is called
   with the context and the input message that triggers an update to the context. transition
-  will be called in a separate thread. transition should return the message that will be sent to the output channel.
+  will be called in a separate thread. transition MUST return a [context, output] tuple where output will be sent to the output channel.
   Additional arguments follow the same semantics as a core.async channel. xf is an output channel only transducer.
   context can be any type as long as transition can make use of it.
 
-  A Cog is also a mult, so feel free to tap it if you want to send outputs to other channels."
+  A Cog is a mult, so feel free to tap it if you want to send outputs to other channels.
+   
+  A Cog can be dereferenced (@cog) to get the current snapshot of context"
   [context transition & [buf-or-n xf ex-handler]]
   (let [in-chan       (chan)
         out-chan      (chan buf-or-n xf ex-handler)
@@ -120,10 +122,6 @@
 (defn cog? [x]
   (instance? Cog x))
 
-(defn context
-  [cog]
-  @cog)
-
 (defn flow
   "A channel that passes previous output as input to the next channel in sequence. The optional transducer will be
    applied to EACH output value in the sequence."
@@ -146,7 +144,8 @@
     io))
 
 (defn- ordered-merge
-  "A merge channel that ensures the output is in the order of the input channels"
+  "A merge channel that ensures the output is in the order of the input channels. Used for scatter-gather pattern 
+   in fanout."
   [chs & [xf]]
   (let [out (if xf
               (chan (count chs) xf)

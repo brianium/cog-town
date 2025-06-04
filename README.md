@@ -153,8 +153,8 @@ Clojure is freedom.
 (gate    trigger-ch & opts)                                    => IoChannel
 (dialogue cogA cogB & opts)                                    => IoChannel
 
-(context cog)   ;; => same as @cog
-(:*context cog) ;; => access the context without dereferencing
+@cog                                                           => Context
+(:*context cog)                                                => Atom<Context>
 ```
 
 For detailed doc‑strings run:
