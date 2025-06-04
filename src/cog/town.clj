@@ -19,7 +19,9 @@
     (proto/close! out))
   (closed? [_] (proto/closed? in)))
 
-(defrecord Cog [context io mult transition]
+(defrecord Cog [*context io mult transition]
+  clojure.lang.IDeref
+  (deref [_] @*context)
   ReadPort
   (take! [_ fn1] (proto/take! io fn1))
   WritePort
@@ -41,15 +43,23 @@
   [in-ch out-ch]
   (IoChannel. in-ch out-ch))
 
-(defn- pipe-transition*
-  "Initiates the given cog's transition pipeline. Should really only be called once
-  at the beginning of a cog's lifetime."
+(defn- start!
   [^Cog cog out-ch]
-  (let [ex-handler (fn [th] {:type ::error :throwable th}) 
-        {:keys [context transition io]} cog
+  (let [{:keys [*context transition io]} cog
         {:keys [in]} io]
-    (async/pipeline-blocking 1 out-ch (map (partial transition context)) in true ex-handler))
-  cog)
+    (async/go-loop [ctx @*context]
+      (if-some [input (<! in)]
+        (recur (<!
+                (async/thread
+                  (try
+                    (let [[next resp] (transition ctx input)]
+                      (reset! *context next)
+                      (>!! out-ch resp)
+                      next)
+                    (catch Throwable th
+                      {:type ::error :input input :throwable th})))))
+        (close! io)))
+    cog))
 
 (defn cog
   "A cog is a channel that encapsulates context and the transition function
@@ -67,24 +77,25 @@
         raw-out       (chan buf-or-n)
         _             (async/tap mult raw-out)
         io            (io-chan in-chan raw-out)
-        cog*          (Cog. context io mult transition)]
-    (pipe-transition* cog* out-chan)))
+        *ctx          (atom context)
+        cog*          (Cog. *ctx io mult transition)]
+    (start! cog* out-chan)))
 
 (defn fork
   "returns a new cog derived from the given cog. The new cog is created
   with a separate io channel and mult. context-fn is called with cog's context
-  and should return a new context (or the same one). A new transition function
+  and should return a new context (nil implies that the same context should be used). A new transition function
   can be given, or can be explicitly set to nil to prevent transitions. A typical
   use case for disabling transitions is when forking purely for the purpose
   of transforming output modality. All map fields from cog will be merged into the new cog"
   ([^Cog cog]
-   (fork cog identity))
+   (fork cog nil))
   ([^Cog cog context-fn]
    (fork cog context-fn (io-chan (chan) (chan))))
   ([^Cog cog context-fn ^IoChannel io]
    (fork cog context-fn io (:transition cog)))
   ([^Cog cog context-fn ^IoChannel io transition]
-   (let [{:keys [context]} cog
+   (let [{:keys [*context]} cog
          {:keys [in out]}  io
          mult     (async/mult out)
          raw-out  (chan)
@@ -92,9 +103,10 @@
          new-io   (io-chan in raw-out)
          tr       (when (fn? transition)
                     transition)
-         cog*     (merge cog (Cog. (context-fn context) new-io mult transition))]
+         *ctx     (if (some? context-fn) (atom (context-fn @*context)) *context)
+         cog*     (merge cog (Cog. *ctx new-io mult transition))]
      (if (some? tr)
-       (pipe-transition* cog* out)
+       (start! cog* out)
        cog*))))
 
 (defn extend
@@ -103,14 +115,14 @@
   ([^Cog cog ^IoChannel io]
    (extend cog io nil))
   ([^Cog cog ^IoChannel io transition]
-   (fork cog identity io transition)))
+   (fork cog nil io transition)))
 
 (defn cog? [x]
   (instance? Cog x))
 
 (defn context
   [cog]
-  (:context cog))
+  @cog)
 
 (defn flow
   "A channel that passes previous output as input to the next channel in sequence. The optional transducer will be

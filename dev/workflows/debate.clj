@@ -1,7 +1,7 @@
 (ns workflows.debate
   "An example of listening to two cogs debate each other. Builds upon workflows.conversation,
    but this time we will pit two agents against each other. Like listening to two very passionate people argue on the subway."
-  (:require [cog.town :refer [dialogue]]
+  (:require [cog.town :as cog :refer [dialogue]]
             [oai-clj.models.audio :as openai]
             [workflows.conversation :as conv]
             [clojure.core.async :as async :refer [<! go-loop]]
@@ -53,7 +53,7 @@
            :instructions "Speak in a whiny, high-pitched voice"}))
 
   ;;; Check the context logs
-  (mapv :context (:cogs d))
+  (mapv cog/context (:cogs d))
   
 ;;; Shut it down
   (async/close! d)

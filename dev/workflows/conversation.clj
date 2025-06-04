@@ -43,12 +43,11 @@
    system-prompt is text to be used for the system prompt. The persona prompt is optional
    and used to further guide personality. This example uses gpt-4o and context backed by an atom"
   [system-prompt & [persona-prompt xf]]
-  (let [*context (atom
-                  (cond-> [{:role :system :content system-prompt}]
-                    (some? persona-prompt) (conj {:role :user :content persona-prompt})))
+  (let [context (cond-> [{:role :system :content system-prompt}]
+                  (some? persona-prompt) (conj {:role :user :content persona-prompt}))
 
-        gpt-4o   (fn [*ctx input]
-                   (let [log-entries  (swap! *ctx conj input)
+        gpt-4o   (fn [context input]
+                   (let [log-entries  (conj context input)
                          response     (openai/create-response :model :gpt-4o :easy-input-messages log-entries)
                          output-entry {:role    :assistant
                                        :content (-> (:output response) first :message :content first :output-text :text)
@@ -56,9 +55,8 @@
                                                   (if (some? (:json-schema fmt))
                                                     :json-schema
                                                     :text))}]
-                     (swap! *ctx conj output-entry)
-                     output-entry))]
-    (cog *context gpt-4o 1 xf)))
+                     [(conj log-entries output-entry) output-entry]))]
+    (cog context gpt-4o 1 xf)))
 
 (defn with-speech
   "We must give our partner the gift of speech. Attaches a stop-playback function to the agent that
@@ -102,7 +100,7 @@
               (async/close! d))
           (recur))))
     (async/put! d "はじめ") ;;; The input message just kicks things off - its contents are irrelevant
-    (assoc d :context (:context partner))))
+    (assoc d :*context (:*context partner))))
 
 (comment
   ;;; Start a dialogue with your favorite persona - prompts are stored in resources/prompts/*
@@ -113,7 +111,7 @@
           :instructions "Speak with a deep, southern united states accent"))
 
   ;;; Take a look at the context log of your conversation partner
-  (:context d)
+  @(:*context d)
 
   ;;; Shut it down
   (async/close! d)

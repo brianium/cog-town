@@ -21,10 +21,9 @@
   of the message will be parsed into a hash-map before being sent to the output channel."
   []
   (let [system-prompt (slurp (io/resource "prompts/personas/sketch-artist.md"))
-        *context      (atom [{:role :system
-                              :content system-prompt}])
-        transition    (fn [*ctx input]
-                        (let [log-entries (swap! *ctx conj input)
+        context       [{:role :system :content system-prompt}]
+        transition    (fn [ctx input]
+                        (let [log-entries (conj ctx input)
                               response    (oai/create-response :easy-input-messages log-entries :format 'SketchInterview)
                               entry       {:role :assistant :content (-> (:output response)
                                                                          first
@@ -33,11 +32,10 @@
                                                                          first
                                                                          :output-text
                                                                          :text)}]
-                          (swap! *ctx conj entry)
-                          entry))
+                          [(conj log-entries entry) entry]))
         parse-string  #(json/parse-string % keyword)
         as-map        #(update % :content parse-string)]
-    (cog *context transition 1 (map as-map))))
+    (cog context transition 1 (map as-map))))
 
 (defn with-display
   "Gives our sketch artist the power to show us images. We will attach state from the original agent and the
@@ -80,7 +78,7 @@
               ((:stop-playback artist)))
           (recur))))
     (async/put! d {:role :user :content "I am ready to be interviewed"}) ;; We want the sketch artist to start the interview
-    (assoc d :context (:context artist))))
+    (assoc d :*context (:*context artist))))
 
 (comment
   (def artist (interview
@@ -91,8 +89,7 @@
   ((:stop-playback artist))
 
   ;;; Check the sketch artist's context out
-  (println (:context artist))
+  @(:*context artist)
 
   ;;; Shut it all down
-  (async/close! artist)
-  )
+  (async/close! artist))

@@ -16,34 +16,35 @@
 
 (defn gpt-4o
   "transition function that updates context via OpenAI's Responses API"
-  [*ctx input]
-  (let [log-entries  (swap! *ctx conj input)
+  [context input]
+  (let [log-entries  (conj context input)
         response     (oai/create-response :model :gpt-4o :easy-input-messages log-entries)
         output-entry {:role    :assistant
                       :content (-> (:output response) first :message :content first :output-text :text)}]
-    (swap! *ctx conj output-entry)
-    output-entry))
+    [(conj log-entries output-entry) output-entry]))
 
 (defn cog
-  "Create a cog with an atom backed context and a transition function
-   that updates said atom via Open AI. Input messages are exected as an easy input message
+  "Create a cog with a simple vector context and a transition function
+   that updates context via Open AI. Input messages are exected as an easy input message
    map - i.e {:role :user :content \"my prompt\"}"
   [prompt]
-  (cogs/cog (atom [{:role :system :content prompt}]) gpt-4o))
+  (cogs/cog [{:role :system :content prompt}] gpt-4o))
 
 (comment
   ;;; 1. Create some cogs
   (def echo
-    (cogs/cog (atom [])          ; <- stateful context
-              (fn [*ctx msg]     ; ctx-atom is the same atom each turn
-                (swap! *ctx conj msg)   ; mutate in place
-                (last (swap! *ctx conj (str "👋 you said: "  msg))))))
+    (cogs/cog [] (fn [ctx msg]
+                   (let [resp (str "👋 you said: "  msg)]
+                     (-> (conj ctx msg)
+                         (conj resp)
+                         (vector resp))))))
 
   (def shout
-    (cogs/cog (atom [])
-              (fn [*ctx msg]
-                (let [uc (clojure.string/upper-case (last (swap! *ctx conj msg)))]
-                  (last (swap! *ctx conj uc))))))
+    (cogs/cog [] (fn [ctx msg]
+                   (let [resp (clojure.string/upper-case msg)]
+                     (-> (conj ctx msg)
+                         (conj resp)
+                         (vector resp))))))
 
   ;;; 2. Wire cogs into a flow
 
@@ -92,9 +93,7 @@
   (a/put! adder {:role :user :content "Add 3 and 7"})
 
   ;;; After building some state, lets fork the adder and give it new purpose
-  (def multiplier (cogs/fork adder (fn [*ctx]
-                                     (let [entries @*ctx]
-                                       (atom (conj entries {:role :user :content "You no longer add numbers, you multiply them"}))))))
+  (def multiplier (cogs/fork adder #(conj % {:role :user :content "You no longer add numbers, you multiply them"})))
   (def mult-observer (a/chan))
   (a/tap multiplier mult-observer)
 
