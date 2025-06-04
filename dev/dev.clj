@@ -1,8 +1,10 @@
 (ns dev
   (:require [clojure.core.async :as a]
+            [clojure.java.process :as proc]
             [clojure.string :as string]
             [clojure.tools.namespace.repl :as repl]
             [oai-clj.core :as oai]
+            [cheshire.core :as json]
             [cog.town :as cogs]))
 
 (defn start []
@@ -23,12 +25,24 @@
                       :content (-> (:output response) first :message :content first :output-text :text)}]
     [(conj log-entries output-entry) output-entry]))
 
+(defn gpt-4o-structured
+  "returns a transition function that leverages an arbitrary format for structured outputs"
+  [fmt]
+  (fn [context input]
+    (let [log-entries  (conj context input)
+          response     (oai/create-response :input-items log-entries :format fmt)
+          output-entry {:role :assistant
+                        :content (-> (:output response) first :message :content first :output-text :text)}]
+      [(conj log-entries output-entry) output-entry])))
+
 (defn cog
   "Create a cog with a simple vector context and a transition function
    that updates context via Open AI. Input messages are exected as an easy input message
    map - i.e {:role :user :content \"my prompt\"}"
-  [prompt]
-  (cogs/cog [{:role :system :content prompt}] gpt-4o))
+  ([propmt]
+   (cog propmt gpt-4o))
+  ([prompt transition]
+   (cogs/cog [{:role :system :content prompt}] transition)))
 
 (comment
   ;;; 1. Create some cogs
@@ -151,5 +165,26 @@
 
   (doseq [ch [idea-guy marketing-guy product-team japanese-translator french-translator spanish-translator translators global-inc]]
     (a/close! ch))
+
+  ;;; structured outputs
+  (def BashCommand
+    [:map
+     [:dir {:description "The working directory to execute the command in. Use \".\" if directory not relevant"} :string]
+     [:command {:description "A bash command as an array of parts - i.e [\"cat\" \"path\"]"} [:vector :string]]])
+
+  (def as-json
+    (map (fn [output]
+           (update output :content #(json/parse-string % keyword)))))
+
+  (def neckbeard
+    (cogs/cog
+     [{:role :system :content "You are the best system administrator. You dictate bash commands used to accomplish some task"}]
+     (gpt-4o-structured 'BashCommand)
+     1 as-json))
+
+  (a/put! neckbeard {:role :user :content "I need to echo \"fun times\" in my terminal"})
+  (a/take! neckbeard (fn [{{:keys [dir command]} :content}]
+                       (println (apply proc/exec {:dir dir} command))))
+  (a/close! neckbeard)
 
   (do "good in this world"))
