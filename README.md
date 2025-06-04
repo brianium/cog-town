@@ -7,6 +7,13 @@ Build **agentic workflows** in Clojure with the ergonomics of `core.async`.
 `cog.town` gives you a tiny set of composable primitives—**cogs**—stateful, concurrent agents that pass messages over channels.  
 Think of them as Lego® bricks for conversational or multimodal AI systems.
 
+Build things like:
+- [Conversational personas](dev/workflows/conversation.clj)
+- [Debates you can listen to](dev/workflows/debate.clj)
+- [Multimodal agents who can speak and show you things](dev/workflows/multimodal.clj)
+
+## 5-min API tour (sans llms)
+
 ```clojure
 (ns my.ns
   (require [clojure.core.async :as a]
@@ -27,6 +34,9 @@ Think of them as Lego® bricks for conversational or multimodal AI systems.
                      (-> (conj ctx msg)
                          (conj resp)
                          (vector resp))))))
+
+(a/put! shout "hello!")
+(a/take! shout println) ;;; => HELLO!
 
 ;;; cogs can be dereferenced to get a live snapshot of their context
 @shout
@@ -77,6 +87,11 @@ transition :: (context, input) → [new‑context, output]
 
 * Runs on its own **real** thread (via `async/thread`) so it is safe to block on HTTP or disk I/O.  
 * Throwing emits `{:type ::error :throwable th :input input}` as output.
+
+### Context
+
+A cog doesn't know anything about its context or transition function. If the transition function follows the signature mentioned above, a cog
+will happily ensure the function is applied in a separate thread. End users can build context (vector?, record? type?) and messages (maps?, strings?, references?) to suit their needs.
 
 ### A note on purity
 
