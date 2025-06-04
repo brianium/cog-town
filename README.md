@@ -4,14 +4,8 @@
 
 Build **agentic workflows** in Clojure with the ergonomics of `core.async`.
 
-`cog.town` gives you a tiny set of composable primitives—**cogs**, **flows**, and **dialogues**—for wiring together stateful, concurrent agents that pass messages over channels.
-Think of it as Lego® bricks for conversational or multimodal AI systems.
-
----
-
-## 5‑minute tour
-
-The goal is core.async semantics for agent workflows.
+`cog.town` gives you a tiny set of composable primitives—**cogs**—stateful, concurrent agents that pass messages over channels.  
+Think of them as Lego® bricks for conversational or multimodal AI systems.
 
 ```clojure
 (ns my.ns
@@ -21,16 +15,22 @@ The goal is core.async semantics for agent workflows.
 
 ;;; 1. Create some cogs
 (def echo
-  (cogs/cog (atom [])          ; <- stateful context
-            (fn [*ctx msg]     ; ctx-atom is the same atom each turn
-              (swap! *ctx conj msg)   ; mutate in place
-              (last (swap! *ctx conj (str "👋 you said: "  msg))))))
+  (cogs/cog [] (fn [ctx msg]
+                 (let [resp (str "👋 you said: "  msg)]
+                   (-> (conj ctx msg)
+                       (conj resp)
+                       (vector resp))))))
 
 (def shout
-  (cogs/cog (atom [])
-            (fn [*ctx msg]
-              (let [uc (string/upper-case (last (swap! *ctx conj msg)))]
-                (last (swap! *ctx conj uc))))))
+    (cogs/cog [] (fn [ctx msg]
+                   (let [resp (clojure.string/upper-case msg)]
+                     (-> (conj ctx msg)
+                         (conj resp)
+                         (vector resp))))))
+
+;;; cogs can be dereferenced to get a live snapshot of their context
+@shout
+;; => ["hello!", "HELLO!"]
 
 ;;; 2. Wire cogs into a flow
 
@@ -49,69 +49,74 @@ The goal is core.async semantics for agent workflows.
     (recur)))
 ```
 
-That’s the whole mental model: **channels in, channels out, context in the middle.**
-
----
-
-## Example workflows
-
-Cog Town doesn't make any assumptions about how these constructs will be used.
-The only real assumption is that some blocking work will be performed in order
-to interact with a platform.
-
-The example workflows all use Open AI via the [oai-clj library](https://github.com/brianium/oai-clj). All
-contexts are simple atoms. I recommend firing up the ol REPL and trying these workflows out (see comment sections in each
-sample workflow)
-
-- [Have a real conversation with a person (mic input, speaker output)](dev/workflows/conversation.clj)
-- [Listen in on a debate between two agents (speaker output)](dev/workflows/debate.clj)
-- [Have a conversation with a sketch artist. He'll draw you a picture when you're done! (mic input, speaker output, visual output)](dev/workflows/multimodal.clj)
-
-Note: These are all using synchronous Open AI services. If interested in building more realtime experiences, check out [reelthyme](https://github.com/brianium/reelthyme).
-
-There are also a handful of helpful examples in [dev.clj](dev/dev.clj)
+You write **pure** business logic; Cog Town handles state threading, back‑pressure, and blocking work on dedicated threads.
 
 ---
 
 ## Core concepts
 
-| Primitive      | What it is                                                                                                                                                                                     | When to reach for it                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **`cog`**      | A bidirectional channel with private **context** (usually an `atom`) and a **transition** fn that updates that context. Implements `ReadPort`, `WritePort` *and* `Mult` so you can tap extras. | Anytime you want stateful, concurrent behaviour.               |
-| **`extend`**   | Light‑weight wrapper around `cog` that **adds or transforms modalities** (e.g. pipe TTS over an existing text cog). Internally calls `fork`.                                                   | Enrich I/O without touching core logic.                        |
-| **`flow`**     | Sequentially connects N channels so that the output of each becomes the input of the next.                                                                                                     | Pipelines (ETL, request → AI → TTS, …).                        |
-| **`fork`**     | Clones a cog, optionally swapping its context, IO channels or transition fn.                                                                                                                   | Re‑use behaviours with tweaks; create read‑only taps; testing. |
-| **`fanout`**   | Sends each value to many channels and gathers their results in order.                                                                                                                          | Scatter–gather, parallel calls.                                |
-| **`gate`**     | Releases a stored value once *another* channel yields.                                                                                                                                         | Back‑pressure, synchronising triggers.                         |
-| **`dialogue`** | Lets two cogs volley messages ad infinitum.                                                                                                                                                    | Chatbots talking to themselves or staged debates.              |
-
-Every helper returns a **channel** so you can compose them with the usual `core.async` tool‑belt.
+| Primitive      | What it is                                                   | When to reach for it                                           |
+| -------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| **`cog`**      | Bidirectional channel **plus** private immutable **context** and a **pure transition**. Implements `ReadPort`, `WritePort`, `Channel`, `Mult`, **`IDeref`**. | Anytime you need an agent that remembers and evolves. |
+| **`extend`**   | Light‑weight wrapper around a cog that **adds** or **re‑routes** its I/O without touching core logic. | Enrich output (TTS, embeddings) or translate input. |
+| **`fork`**     | Clones a cog, optionally transforming its context, IO pair, or transition. | Re‑use behaviours with tweaks; create read‑only taps; testing. |
+| **`flow`**     | Sequentially connects N channels so each output becomes the next input. | Pipelines (ETL, request → AI → TTS, etc.). |
+| **`fanout`**   | Broadcasts an input value to many channels, gathers ordered results. | Scatter‑gather, multi‑tool calls. |
+| **`gate`**     | Releases the value of a latched channel when triggered by input. | Throttling, deferred fetches. |
+| **`dialogue`** | Ping‑pong messages between two cogs forever. | Multi‑turn agent duets or self‑conversation. |
 
 ---
 
-## API quick‑reference
+## Transition functions
+
+A cog’s transition function **must be pure**:
 
 ```clojure
-(cog  context transition-fn & [buf-or-n xf ex-handler])            => Cog
-
-;; Fork variants -------------------------------------------------------------
-(fork cog)                                                         => Cog
-(fork cog context-fn)                                              => Cog
-(fork cog context-fn io-chan)                                      => Cog
-(fork cog context-fn io-chan transition-fn)                        => Cog
-
-(extend cog io-chan & [transition-fn])                             => Cog
-
-(flow [ch1 ch2 …] & [buf-or-n xf ex-handler])                      => IoChannel
-(fanout chs & {:keys [xf buf-or-n ex-handler]})                    => IoChannel
-(gate trigger-ch & [buf-or-n xf ex-handler])                       => IoChannel
-(dialogue cogA cogB & [buf-or-n xf ex-handler])                    => IoChannel
-
-(context cog)   ;→ whatever context implementation was given to the cog
-(cog? x)        ;→ boolean
+transition :: (context, input) → [new‑context, output]
 ```
 
-For detailed doc‑strings see the source or run
+* Runs on its own **real** thread (via `async/thread`) so it is safe to block on HTTP or disk I/O.  
+* Throwing emits `{:type ::error :throwable th :input input}` as output.
+
+---
+
+## Observing & time‑travel
+
+* **Live snapshot** – since a cog implements `IDeref`, you can simply do `(@my-cog)` to get the latest context value.  
+* **Audit / replay** – Optionally collect the pair `[ctx out]` in transition functions, storing it in an atom or log. Replaying the log with the pure transition will reproduce the run deterministically (with `temperature = 0`).  
+* **Forking** – Pick any historical `ctx` value and feed it back into a new cog for “what‑if” exploration.
+
+---
+
+## Performance & GC notes
+
+* Contexts **≤ 2 MB** updated a few times per second are generally safe.  
+* Watch `-Xlog:gc*` or `jstat -gcutil` during dev; full GCs should be rare.  
+* If context grows (large transcripts, embeddings), store bulky data off‑heap or behind an ID reference and keep lightweight keys in `ctx`.  
+* Cap the length of any time‑travel timeline vector or store *deltas* to avoid memory blow‑up.
+
+---
+
+## API reference (cheatsheet)
+
+```clojure
+(cog     ctx transition & [buf-or-n xf ex-handler])            => Cog
+(fork    cog)                                                  => Cog
+(fork    cog ctx-fn)                                           => Cog
+(fork    cog ctx-fn io)                                        => Cog
+(fork    cog ctx-fn io transition-fn)                          => Cog
+(extend  cog io & [transition-fn])                             => Cog
+
+(flow    [ch1 ch2 …] & opts)                                   => IoChannel
+(fanout  chs & opts)                                           => IoChannel
+(gate    trigger-ch & opts)                                    => IoChannel
+(dialogue cogA cogB & opts)                                    => IoChannel
+
+(context cog)   ;; => same as @cog
+(:*context cog) ;; => access the context without dereferencing
+```
+
+For detailed doc‑strings run:
 
 ```clojure
 (clojure.repl/doc cog.town/cog)
@@ -121,4 +126,4 @@ For detailed doc‑strings see the source or run
 
 ## License
 
-MIT © 2025 Brian Scaturro
+MIT © 2025 Brian Scaturro
