@@ -12,6 +12,9 @@ Build things like:
 - [Debates you can listen to](dev/workflows/debate.clj)
 - [Multimodal agents who can speak and show you things](dev/workflows/multimodal.clj)
 
+The dev environment and sample workflows use OpenAI's models. In order to run the samples, your environment
+should have an OPENAI_API_KEY variable containing a valid OpenaAI API key.
+
 ## 5-min API tour (sans llms)
 
 ```clojure
