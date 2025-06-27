@@ -187,4 +187,28 @@
                        (println (apply proc/exec {:dir dir} command))))
   (a/close! neckbeard)
 
+  ;;; Printing and ex-handler
+  (defn ex-handler [^Throwable th]
+    {:type ::error :message (.getMessage th)})
+
+  ;;; ex-handler in with error in transition
+  (def error-prone
+    (cogs/cog [] (fn [_ msg]
+                   (throw (ex-info "Very dumb message" {:msg msg}))) 1 (map identity) ex-handler))
+
+  (print error-prone)
+  (a/put! error-prone "so dumb!")
+  (a/take! error-prone println)
+
+  ;;; ex-handler in out channel transducer
+  (def error-echo
+    (cogs/cog [] (fn [ctx msg]
+                   (let [resp (str "👋 you said: "  msg)]
+                     (-> (conj ctx msg)
+                         (conj resp)
+                         (vector resp)))) 1 (map (fn [v] (throw (ex-info "Bad time" {:v v})))) ex-handler))
+
+  (a/put! error-echo "foo")
+  (a/take! error-echo println)
+
   (do "good in this world"))
