@@ -53,6 +53,9 @@
                          (conj resp)
                          (vector resp))))))
 
+  ;;; printing a cog
+  (print echo)
+
   (def shout
     (cogs/cog [] (fn [ctx msg]
                    (let [resp (clojure.string/upper-case msg)]

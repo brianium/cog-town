@@ -34,6 +34,9 @@
   (untap* [_ ch] (async/untap* mult ch))
   (untap-all* [_] (async/untap-all* mult)))
 
+(defmethod print-method Cog [_ writer]
+  (.write writer "#<Cog>"))
+
 ;;; Cog Town
 
 (defn io-chan
