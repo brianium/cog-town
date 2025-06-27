@@ -19,7 +19,7 @@
     (proto/close! out))
   (closed? [_] (proto/closed? in)))
 
-(defrecord Cog [*context io mult transition]
+(defrecord Cog [*context io mult transition ex-handler]
   clojure.lang.IDeref
   (deref [_] @*context)
   ReadPort
@@ -48,8 +48,9 @@
 
 (defn- start!
   [^Cog cog out-ch]
-  (let [{:keys [*context transition io]} cog
-        {:keys [in]} io]
+  (let [{:keys [*context transition io ex-handler]} cog
+        {:keys [in]} io
+        ex-handler' (or ex-handler (fn [th] {::type :error :throwable th}))]
     (async/go-loop [ctx @*context]
       (if-some [input (<! in)]
         (recur (<!
@@ -60,7 +61,7 @@
                       (>!! out-ch resp)
                       next)
                     (catch Throwable th
-                      {:type ::error :input input :throwable th})))))
+                      (>!! out-ch (ex-handler' th)))))))
         (close! io)))
     cog))
 
@@ -83,7 +84,7 @@
         _             (async/tap mult raw-out)
         io            (io-chan in-chan raw-out)
         *ctx          (atom context)
-        cog*          (Cog. *ctx io mult transition)]
+        cog*          (Cog. *ctx io mult transition ex-handler)]
     (start! cog* out-chan)))
 
 (defn fork
@@ -100,7 +101,7 @@
   ([^Cog cog context-fn ^IoChannel io]
    (fork cog context-fn io (:transition cog)))
   ([^Cog cog context-fn ^IoChannel io transition]
-   (let [{:keys [*context]} cog
+   (let [{:keys [*context ex-handler]} cog
          {:keys [in out]}  io
          mult     (async/mult out)
          raw-out  (chan)
@@ -109,7 +110,7 @@
          tr       (when (fn? transition)
                     transition)
          *ctx     (if (some? context-fn) (atom (context-fn @*context)) *context)
-         cog*     (merge cog (Cog. *ctx new-io mult transition))]
+         cog*     (merge cog (Cog. *ctx new-io mult transition ex-handler))]
      (if (some? tr)
        (start! cog* out)
        cog*))))
